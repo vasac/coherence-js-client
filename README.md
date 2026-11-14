@@ -12,8 +12,8 @@ the network transport.
 
 ### Requirements
 * Coherence CE versions `22.06`, `14.1.2-0-0`, `25.03` or later (or equivalent non-open source editions) with a configured [gRPC Proxy](https://docs.oracle.com/en/middleware/standalone/coherence/14.1.1.2206/develop-remote-clients/using-coherence-grpc-server.html)
-* Node `20.19.x` or later
-* NPM `9.x` or later
+* Node `22.9.0` or later in the `22.x` line, `24.x`, or `26.x`; use the latest patch release of a supported line. Node 20 is end-of-life and is no longer supported.
+* For source builds, use npm `11.20.0`. Release builds use Node `26.x` LTS. See [DEVELOPING.md](./DEVELOPING.md) for the reproducible installation procedure and CI matrix.
 
 ### Usage
 
@@ -28,7 +28,7 @@ or to save some keystrokes/time, use the included npm script, `coh-up` to start 
 npm run coh-up
 ```
 
-**Important!** When calling `coh-up` or `coh-down`, the LTS version of Coherence will be used (`22.06.12`).
+**Important!** The local `coh-up` and `coh-down` scripts default to Coherence `22.06.11`; CI tests `22.06.12`, `14.1.2-0-3`, and `25.03.2` explicitly.
 To use a later Coherence version, such as `25.03.2`, prefix the calls with, or export `COHERENCE_VERSION=<desired-version>`.
 For example:
 ```bash
@@ -151,7 +151,7 @@ const opts = new Options({address: 'coherence:///localhost',
 let session = new Session(opts)
 ```
 
-*NOTE* The Coherence NameService feature requires Node `20.x` or later.
+The Coherence NameService feature is available on all supported Node versions.
 
 It's also possible to control the default address the session will bind to by providing
 an address via the `COHERENCE_SERVER_ADDRESS` environment variable.  The format of the value would
