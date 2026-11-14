@@ -1,0 +1,47 @@
+{
+  "source": "https://github.com/oracle/coherence/tree/4692ec775ab1710dc746e9752f04ff9fc763243c/prj/coherence-grpc/src/main/proto",
+  "tag": "22.06.10",
+  "schemas": {
+    "messages.proto": "5b6dd500fcba595c54d28692d30a7c60ea78b8b58e57885a369cadfdd2c781ed",
+    "services.proto": "ce7e8648cd8e04bb7df8f8f6dbef260642f99bbb80092794c83863f98d53c342"
+  },
+  "importSource": "https://github.com/protocolbuffers/protobuf/tree/v3.19.1/src",
+  "imports": {
+    "google/protobuf/empty.proto": "23b75ded84bd2ee81f0098850ffaa0d5e1a6d881a9e1a760f730989e90534ec3",
+    "google/protobuf/wrappers.proto": "020c88776e814647da13c1cd5675031a3ffd35b016e64f721c5e066d375d4f43"
+  },
+  "generator": {
+    "version": "4.0.3",
+    "url": "https://github.com/protocolbuffers/protobuf-javascript/releases/download/v4.0.3",
+    "artifacts": {
+      "linux-x64": {
+        "file": "protobuf-javascript-4.0.3-linux-x86_64.tar.gz",
+        "sha256": "30abc1d57c3cc7105950e56e1b37b41033f6ed989b79efc59b90186c0a835c30"
+      },
+      "linux-arm64": {
+        "file": "protobuf-javascript-4.0.3-linux-aarch_64.tar.gz",
+        "sha256": "856585ad455e1f1ce82eebb95ca70415d3d8c017559e35b585d7907239bafa04"
+      },
+      "linux-ia32": {
+        "file": "protobuf-javascript-4.0.3-linux-x86_32.tar.gz",
+        "sha256": "9391606fe49faa41e4a285ca1b7a9316a2ee9fecf371420bdaa817875b9edf60"
+      },
+      "linux-ppc64": {
+        "file": "protobuf-javascript-4.0.3-linux-ppcle_64.tar.gz",
+        "sha256": "a02c07f1e258067bcbcf01f30ff516395830e410ea413df24b8462abc7a7f7ff"
+      },
+      "linux-s390x": {
+        "file": "protobuf-javascript-4.0.3-linux-s390_64.tar.gz",
+        "sha256": "b176ce7640113bb496b8bd5fa653ebc5c34cf2b9ec1f74300eef03003f5f75ca"
+      },
+      "darwin-x64": {
+        "file": "protobuf-javascript-4.0.3-osx-x86_64.tar.gz",
+        "sha256": "061434c54e20159d9d40ded66e75d3b7d7a61c92996b97f3071c44d436734f09"
+      },
+      "darwin-arm64": {
+        "file": "protobuf-javascript-4.0.3-osx-aarch_64.tar.gz",
+        "sha256": "3f059e249a818d12fcd5f936d38508f1fce9e3b8dcfb87deb54859978efcb118"
+      }
+    }
+  }
+}

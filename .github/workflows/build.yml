@@ -42,10 +42,6 @@ jobs:
         node-version: ${{ matrix.node-version }}
     - name: Use npm 11.20.0
       run: npm install --global npm@11.20.0
-    # install protoc
-    - run: curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v22.2/protoc-22.2-linux-x86_64.zip"
-    - run: unzip protoc-22.2-linux-x86_64.zip -d /tmp/grpc
-    - run: echo "/tmp/grpc/bin" >> "$GITHUB_PATH"
     # install project deps
     - run: npm ci
     # print version of typescript

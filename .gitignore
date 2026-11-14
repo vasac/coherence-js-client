@@ -6,7 +6,6 @@ node_modules/**
 .idea
 lib
 src/grpc
-etc/proto
 etc/cert
 etc/jvm-args.txt
 .npmrc
