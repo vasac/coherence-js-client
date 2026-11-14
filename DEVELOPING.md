@@ -151,6 +151,13 @@ two matching filters and a key listener, observes multiple filter IDs in a singl
 server response, and checks delivery after removing listeners. Both files also run
 in the regular unit/integration suite.
 
+`npm exec -- mocha test/hash-map-tests.js` runs the server-free `HashMap` iterator
+contracts after compilation. The shared checks in `test/helpers/hash-map-iterators.js`
+also run directly against an installed tarball without Mocha, including on the
+consumer runtime floor of Node 22.9.0. The TypeScript fixtures in `test/fixtures/`
+exercise the packed public API; they must resolve an installed `@oracle/coherence`,
+not the repository's source files. See the iterator qualification below.
+
 `npm run test-resolver-unit` also runs without a Coherence server. It tests actual
 TCP framing, valid and malformed discovery responses, foreign lookup, refused and
 closed connections, the 10-second socket inactivity timeout, retries, repeated
@@ -281,17 +288,101 @@ TypeScript 6.0.3 and 5.8.3. A fresh production install of the
 broad dependency. With those typings, both compilers failed with four TS2416 errors
 in `lib/util.d.ts`: `HashMap.entries()`, `values()`, `keys()`, and
 `[Symbol.iterator]()` return `IterableIterator`, which lacks the `[Symbol.dispose]`
-member required by `MapIterator`. This is a pre-existing declaration compatibility
+member required by `MapIterator`. This was a pre-existing declaration compatibility
 limit, not a step 4 regression. The Node typings are compiler input, separate from
 the Node runtime version. The version 22 pin defines the passing review
 configuration; it does not fix the iterator incompatibility. That fix is separate
-work.
+from step 4 and is qualified below.
 
 This is bounded development-tool qualification. Node 22, Coherence 22.06.12 and
 25.03.2, two-member/foreign-cluster discovery, TLS combinations, Linux and other
 architectures were not exercised in this step. The existing Node 22/24/26 and
 three-server CI matrices remain unchanged. Scanner results describe the databases
 at the recorded times and are supplemented by the primary advisory checks above.
+
+### HashMap iterator compatibility follow-up — 14 November 2026
+
+Before this fix, a newly packed distribution from the step 4 baseline reproduced
+the four `lib/util.d.ts` TS2416 errors above with exact `@types/node@26.6.6` under
+both TypeScript 6.0.3 and 5.8.3. Both compilers passed with exact
+`@types/node@22.20.5`. The additional consumer assignments of `HashMap` to `Map`
+and of its iterators to `MapIterator` also failed with the newer typings.
+
+`HashMap.entries()`, `keys()`, `values()` and `[Symbol.iterator]()` now return
+`MapIterator<T>`. Their private implementations share a native `Iterator` base,
+so the declaration also has real iterator helper methods behind it. Node 22
+[introduced iterator helpers](https://nodejs.org/en/blog/announcements/v22-release-announce#v8-update-to-124);
+the actual base constructor and helper behavior were verified on Node 22.9.0.
+The source compiler explicitly loads `es2025.iterator` and `esnext.disposable`
+to check these contracts even when building with the pinned Node 22 typings.
+The emitted target remains ES2015/CommonJS; consumers need no polyfill or new
+dependency, and the existing engine ranges are unchanged.
+
+The shared `[Symbol.dispose]()` implementation follows
+[the ECMAScript iterator disposal algorithm](https://tc39.es/ecma262/multipage/control-abstraction-objects.html#sec-iterator.prototype-%symbol.dispose%):
+call `return()` with no arguments if present, propagate its errors, and return
+`undefined`. These in-memory iterators normally have no `return()` and hold no
+external resource, so repeated disposal does nothing, leaves the map intact and
+allows iteration to continue, like a native map iterator. This method is provided
+by the client even on Node 22.9.0, where native iterator disposal is absent but
+`Symbol.dispose` is available. Exhaustion now returns `{done: true, value: undefined}`
+instead of `null`, matching strict built-in iterator return typing. Yielded entries,
+keys and values, bucket traversal, independent iterators and resumability after an
+early loop exit are preserved. `LocalSet` retains its existing iterator declarations
+and uses the corrected shared key iterator at runtime.
+
+#### Packed-consumer qualification
+
+Build host: macOS arm64, Node 26.13.1, npm 11.20.0, TypeScript 6.0.3 and direct
+build typings 22.20.5. `npm pack` ran the established `prepack` generation/compile
+and `prepare` hooks. The rebuilt tarball was installed separately into two clean
+consumer directories with exact typings versions and no dependency overrides.
+TypeDoc used a temporary output directory, so these tarballs contain the runtime,
+declarations and source, without the generated HTML included by `dist`.
+The approved Oracle npm mirror did not resolve during this follow-up, so dependency
+installation used cached package data offline. No alternate registry was contacted.
+Node 22.9.0 was obtained from the official Node distribution and its archive SHA-256
+was checked against the release's `SHASUMS256.txt`.
+
+Both consumers used `target: ES2022`, `module: Node16`, `moduleResolution: Node16`,
+`strict: true`, `skipLibCheck: false`, and `esModuleInterop: true`. The primary
+`test/fixtures/iterator-consumer.ts` fixture imported the public library, assigned
+`HashMap` to `Map`, checked all four iterator types and result narrowing, and used
+listeners and generated message/service declarations. Compiler file lists confirmed
+that all 12 `.d.ts` files under `lib` were checked. A second compile included
+`iterator-disposal-consumer.ts`, which explicitly references `esnext.disposable`
+and `esnext.iterator` and checks `using`, disposal and native helper calls.
+
+| Exact Node typings | TypeScript | Primary strict consumer | Disposal/helper consumer |
+| --- | --- | --- | --- |
+| 22.20.5 | 6.0.3 | Passed | Passed |
+| 22.20.5 | 5.8.3 | Passed | Passed |
+| 26.6.6 | 6.0.3 | Passed | Passed |
+| 26.6.6 | 5.8.3 | Passed | Passed |
+
+For repeat qualification, build a tarball with `npm pack --pack-destination <dir>`,
+install it into a fresh directory with each exact typings/compiler combination,
+copy the fixtures there, and run `tsc -p <consumer-config>`. Compile the primary
+fixture alone first, then both fixtures together so the optional library references
+do not mask the primary consumer's default library configuration. Run the emitted
+CommonJS files on the supported runtimes too. The consumer must use the tarball
+installation, with no link to repository `lib` or `node_modules`.
+
+| Additional check | Observed result |
+| --- | --- |
+| Packed CommonJS runtime contracts | All 26 shared iterator checks passed in **each** clean consumer on Node **22.9.0**, **24.13.0** and **26.13.1**. Covered all four factories, falsy values, empty/colliding/separate buckets, exhaustion, object identity, live updates, map conversion/`forEach`, independent iterators, early exit, disposal before/during/after traversal, optional `return()` delegation/errors, native helpers and synchronous/asynchronous `LocalSet` traversal. |
+| Emitted TypeScript consumers | The primary fixture and the disposal/helper fixture emitted by **both compilers**, with **both typings versions**, ran successfully on all three runtimes above. This includes actual `using` cleanup on Node 22.9.0. |
+| Server-free regressions | **48 passed**: 26 new iterator contracts, 8 protobuf checks, 3 tooling checks and 11 request-factory checks. Existing loopback resolver regressions: **27 passed**. |
+| Generation / declaration comparison | Generated protobuf artifacts unchanged from the pre-fix snapshot. Of the shipped declarations, only `lib/util.d.ts` changed: the four iterator return annotations. Private iterator classes do not enter that declaration. |
+| TypeDoc / packaging | TypeDoc passed with 0 errors and the same 19 existing warnings. Before/after tarballs each contained 59 files with identical paths. Content changes were confined to `src/util.ts`, emitted `lib/util.js`, its source map, `lib/util.d.ts` and its declaration map. |
+| Dependency / diff checks | Consumer dependency trees and `git diff --check` passed. No dependency or lockfile changes; the lockfile SHA-256 remains `908ca398589e719792eeed4277e5100cdd84ff0816631633a9c22b3837728b63`. |
+
+This follow-up qualifies iterator behavior and public declarations. It does not
+repeat the earlier live Coherence, TLS, multi-member, OS/architecture or security
+scanner matrices, and does not qualify compiler versions other than 5.8.3 and
+6.0.3. The existing CI matrices and step 4 evidence remain unchanged. Temporary
+consumers, archives, downloaded tools and documentation output were removed after
+qualification; the fixtures and shared runtime checks remain in the repository.
 
 ### Code Style
 * Currently based on https://google.github.io/styleguide/jsguide#formatting
