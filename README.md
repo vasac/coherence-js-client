@@ -89,8 +89,22 @@ The currently supported properties are:
     - `clientCertPath` - the path to the client certificate. This may be configured with the environment variable `COHERENCE_TLS_CLIENT_CERT`
     - `clientKeyPath` - the path to the client certificate key. This may be configured with the environment variable `COHERENCE_TLS_CLIENT_KEY`
 
-*NOTE*: If testing locally generated certificates, set `COHERENCE_IGNORE_INVALID_CERTS` to `true` to disable
-TLS validation of the certificates.
+TLS verifies the server's certificate chain and hostname by default. Trust the
+issuing CA and connect using a name in the server certificate's subject alternative
+names (SANs). Locally generated certificates work with verification enabled too:
+`npm run test-cycle-tls` creates a local CA, a server certificate for `localhost`
+and `127.0.0.1`, and a separate client identity, then runs the integration tests.
+See [DEVELOPING.md](DEVELOPING.md#tls-certificates-and-verification) for manual setup.
+Use `localhost` with the current grpc-js version on Node 26; IP-literal gRPC TLS
+targets encounter the SNI limitation documented there.
+
+For an intentional compatibility opt-out, only the exact, case-sensitive value
+`COHERENCE_IGNORE_INVALID_CERTS=true` skips **server hostname verification** and
+emits a warning. Certificate-chain validation remains enabled, so an untrusted CA
+still fails. Unset, empty, `false`, `0`, uppercase variants, whitespace, and all
+other values keep hostname verification enabled. Skipping hostname verification
+is insecure; use matching SANs instead. Earlier versions treated every nonempty
+value, including `false`, as enabling the opt-out.
 
 ```typescript
 const { Session } = require('@oracle/coherence')

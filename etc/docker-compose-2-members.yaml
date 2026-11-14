@@ -11,8 +11,10 @@ services:
         aliases:
           - server1
     image: ${DOCKER_REGISTRY}/${COHERENCE_TYPE}:${COHERENCE_VERSION}
+    user: "${COHERENCE_TEST_USER:-0:0}"
     environment:
       - COHERENCE_WKA=server1
+      - COHERENCE_CLUSTER=${COMPOSE_PROJECT_NAME:-coherence-js-test}
     ports:
       - "30000:30000"
       - "1408:1408"
@@ -21,8 +23,8 @@ services:
       - "6676:6676"
       - "7574:7574"
     volumes:
-      - .:/args
-      - ./cert:/certs
+      - ${COHERENCE_TEST_ARGS_DIR:-.}/jvm-args.txt:/args/jvm-args.txt:ro
+      - ${COHERENCE_TEST_CERTS_DIR:-./cert/server}:/certs:ro
 
   coherence2:
     hostname: server2
@@ -31,13 +33,15 @@ services:
         aliases:
           - server2
     image: ${DOCKER_REGISTRY}/${COHERENCE_TYPE}:${COHERENCE_VERSION}
+    user: "${COHERENCE_TEST_USER:-0:0}"
     environment:
       - COHERENCE_WKA=server1
+      - COHERENCE_CLUSTER=${COMPOSE_PROJECT_NAME:-coherence-js-test}
     ports:
       - "9613:9613"
     volumes:
-      - .:/args
-      - ./cert:/certs
+      - ${COHERENCE_TEST_ARGS_DIR:-.}/jvm-args.txt:/args/jvm-args.txt:ro
+      - ${COHERENCE_TEST_CERTS_DIR:-./cert/server}:/certs:ro
 
 networks:
   coherence:

@@ -54,6 +54,7 @@
     "dist": "npm run compile && typedoc && npm pack",
     "prepack": "npm run grpc && npm run compile",
     "prepare": "node bin/patch-typedoc.js && bin/npm-post-install.sh",
-    "test-tooling": "npm run compile && mocha test/tooling-tests.js"
+    "test-tooling": "npm run compile && mocha test/tooling-tests.js",
+    "test-tls": "npm run compile && mocha test/tls-tests.js test/test-cycle-tests.js"
   }
 }

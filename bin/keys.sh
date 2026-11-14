@@ -1,71 +1,77 @@
 #!/usr/bin/env bash
 
-#
-# Copyright (c) 2023, Oracle and/or its affiliates.
+# Copyright (c) 2023, 2026, Oracle and/or its affiliates.
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # https://oss.oracle.com/licenses/upl.
-#
 
-set -e
+set -euo pipefail
+umask 077
 
-if [ "${COMPUTER_NAME}" == "" ]
-then
-    COMPUTER_NAME="127.0.0.1"
-fi
-
-CERTS_DIR=$1
-if [ -z "${CERTS_DIR}" ] ; then
-  echo "Please provide certs_dir"
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <new-certificate-directory>" >&2
   exit 1
 fi
 
-# check for location of openssl.cnf
-if [ -f "/etc/ssl/openssl.cnf" ]; then
-  export SSL_CNF=/etc/ssl/openssl.cnf
-else
-  export SSL_CNF=/etc/pki/tls/openssl.cnf
-fi
+CERTS_DIR=$1
+# Refuse existing paths: never overwrite or delete somebody else's certificates.
+mkdir -m 700 "${CERTS_DIR}"
+complete=false
+cleanup() {
+  if [ "${complete}" != true ]; then rm -rf -- "${CERTS_DIR}"; fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir -m 700 "${CERTS_DIR}/server"
 
-mkdir -p "${CERTS_DIR}"
+cat > "${CERTS_DIR}/openssl.cnf" <<'EOF'
+[req]
+distinguished_name = dn
+[dn]
+[ca]
+basicConstraints = critical,CA:true,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+[server]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:localhost,IP:127.0.0.1
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+[client]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = clientAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+EOF
 
-# Generate random passwords for each run
-CAPASS=$(uuidgen | sha256sum | cut -f 1 -d " ")
+openssl genrsa -out "${CERTS_DIR}/ca.key" 2048
+openssl req -new -x509 -sha256 -days 30 -config "${CERTS_DIR}/openssl.cnf" \
+  -extensions ca -key "${CERTS_DIR}/ca.key" -out "${CERTS_DIR}/ca.crt" \
+  -subj '/CN=Coherence local test CA'
 
-echo Generate Guardians CA key:
-echo "${CAPASS}" | openssl genrsa -passout stdin -aes256 \
-    -out "${CERTS_DIR}"/guardians-ca.key 4096
+for role in server client; do
+  if [ "${role}" = server ]; then
+    identity="${CERTS_DIR}/server/server"
+    serial=2
+  else
+    identity="${CERTS_DIR}/client"
+    serial=3
+  fi
+  openssl genrsa -out "${identity}.key" 2048
+  openssl req -new -sha256 -config "${CERTS_DIR}/openssl.cnf" \
+    -key "${identity}.key" -out "${identity}.csr" -subj "/CN=Coherence test ${role}"
+  openssl x509 -req -sha256 -days 30 -in "${identity}.csr" \
+    -CA "${CERTS_DIR}/ca.crt" -CAkey "${CERTS_DIR}/ca.key" -set_serial "${serial}" \
+    -extfile "${CERTS_DIR}/openssl.cnf" -extensions "${role}" -out "${identity}.crt"
+  # Netty and grpc-js both accept unencrypted PKCS#8 PEM keys.
+  openssl pkcs8 -topk8 -nocrypt -in "${identity}.key" -out "${identity}.pem"
+  rm -- "${identity}.key" "${identity}.csr"
+done
 
-echo Generate Guardians CA certificate:
-echo "${CAPASS}" | openssl req -passin stdin -new -x509 -days 3650 \
-    -reqexts SAN \
-    -config <(cat "${SSL_CNF}" \
-        <(printf "\n[SAN]\nsubjectAltName=DNS:localhost,DNS:127.0.0.1")) \
-    -key "${CERTS_DIR}"/guardians-ca.key \
-    -out "${CERTS_DIR}"/guardians-ca.crt \
-    -subj "/CN=${COMPUTER_NAME}" # guardians-ca.crt is a trustCertCollectionFile
-
-echo Generate client Star-Lord key
-echo "${CAPASS}" | openssl genrsa -passout stdin -aes256 \
-    -out "${CERTS_DIR}"/star-lord.key 4096
-
-echo Generate client Star-Lord signing request:
-echo "${CAPASS}" | openssl req -passin stdin -new \
-    -key "${CERTS_DIR}"/star-lord.key \
-    -out "${CERTS_DIR}"/star-lord.csr -subj "/CN=Star-Lord"
-
-echo Self-signed client Star-Lord certificate:
-echo "${CAPASS}" | openssl x509 -passin stdin -req -days 3650 \
-    -in "${CERTS_DIR}"/star-lord.csr \
-    -CA "${CERTS_DIR}"/guardians-ca.crt \
-    -CAkey "${CERTS_DIR}"/guardians-ca.key \
-    -set_serial 01 \
-    -out "${CERTS_DIR}"/star-lord.crt # star-lord.crt is the certChainFile for the client (Mutual TLS only)
-
-echo Remove passphrase from Star-Lord key:
-echo "${CAPASS}" | openssl rsa -passin stdin \
-    -in "${CERTS_DIR}"/star-lord.key \
-    -out "${CERTS_DIR}"/star-lord.key
-
-openssl pkcs8 -topk8 -nocrypt \
-    -in "${CERTS_DIR}"/star-lord.key \
-    -out "${CERTS_DIR}"/star-lord.pem # star-lord.pem is the privateKey for the Client (mutual TLS only)
+# Mount only this directory into the server, excluding the CA and client keys.
+cp "${CERTS_DIR}/ca.crt" "${CERTS_DIR}/server/ca.crt"
+rm -- "${CERTS_DIR}/openssl.cnf"
+complete=true

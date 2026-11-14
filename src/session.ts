@@ -536,16 +536,17 @@ export class Session
 
     // If TLS is enabled then create an SSL channel credentials object.
     if (this.options.tls.enabled) {
-      let skipValidation: string | undefined = process.env.COHERENCE_IGNORE_INVALID_CERTS|| undefined
-      if (skipValidation !== undefined) {
-        console.warn("WARNING: you have turned off SSL certificate validation. This is insecure and not recommended.")
+      const skipServerIdentityCheck = process.env.COHERENCE_IGNORE_INVALID_CERTS === 'true'
+      if (skipServerIdentityCheck) {
+        console.warn('WARNING: COHERENCE_IGNORE_INVALID_CERTS=true disables TLS server hostname verification. ' +
+            'Certificate-chain validation remains enabled. This is insecure and not recommended.')
       }
 
       let caCert: Buffer = Session.readFile('caCert', this.options.tls.caCertPath)
       let clientKey: Buffer = Session.readFile('clientKey', this.options.tls.clientKeyPath)
       let clientCert: Buffer = Session.readFile('clientCert', this.options.tls.clientCertPath)
 
-      if (skipValidation !== undefined) {
+      if (skipServerIdentityCheck) {
         this._channelCredentials = credentials.createSsl(caCert, clientKey,
             clientCert, {checkServerIdentity: () => undefined})
       } else {

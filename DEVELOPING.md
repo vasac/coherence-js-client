@@ -10,7 +10,7 @@ https://oss.oracle.com/licenses/upl.
 ### Requirements
 * For development and tests, Node `22.12.0` or later in the `22.x` line, `24.x`, or `26.x`; use the latest patch release of a supported line. Mocha 12 needs `require(esm)` support. The published client's runtime floor remains `22.9.0`; development tools are not installed by consumers. Release builds use Node `26.x` LTS.
 * npm `11.20.0`, pinned in `package.json` and installed explicitly by CI.
-* Docker with Compose for the integration tests. Linux/macOS builds also need `curl`, `tar`, and network access for dependency installation and the verified JavaScript generator download.
+* Docker with Compose for the integration tests. Linux/macOS builds also need `curl`, `tar`, OpenSSL (for local TLS certificates), and network access for dependency installation and the verified JavaScript generator download.
 
 Node 20 is end-of-life and is no longer supported. CI tests Node `22.x`, `24.x`, and `26.x`
 against Coherence `22.06.12`, `14.1.2-0-3`, and `25.03.2`, including TLS and discovery tests.
@@ -28,10 +28,11 @@ See the [npm 11 engine declaration](https://github.com/npm/cli/blob/v11.20.0/pac
 * `full-clean` - runs `clean` and removes the local `node_modules` directory 
 * `test-protobuf` - runs the server-free protobuf wire-format and recursion-limit regressions
 * `test-tooling` - checks Mocha discovery/exclusions, NYC file selection, and TypeDoc filtering without a Coherence server
+* `test-tls` - checks real loopback TLS/gRPC validation, local certificate generation, and test-cycle isolation/cleanup without a Coherence cluster
 * `test-resolver-unit` - runs discovery regressions with loopback NameService and gRPC peers; no Coherence cluster is required
 * `test-resolver` - runs those regressions and discovery integration tests against local and foreign Coherence clusters
 * `test` - runs the unit and integration tests
-* `test-cycle` - starts the cluster and if successful, runs the unit tests.  After the cluster will be stopped.
+* `test-cycle` / `test-cycle-tls` - start an isolated two-member cluster, run the unit/integration suite over plaintext / verified TLS, and clean up this invocation's cluster and files
 * `coverage` - runs the unit tests and gathers coverage metrics (results found in `coverage` directory)
 * `coh-up` - starts a two-member Coherence cluster for testing/developing against
 * `coh-down` - stops the previously started Coherence cluster
@@ -193,6 +194,159 @@ For example:
 ```bash
 COHERENCE_VERSION=25.03.2 npm run test-cycle
 ```
+
+### TLS certificates and verification
+
+Run the focused checks without Docker:
+
+```bash
+npm run test-tls
+```
+
+This suite generates temporary certificates and starts mutually authenticated
+loopback gRPC peers. It checks trusted matching DNS certificates through
+`Session`/`NamedCache`, a real Node TLS connection to the IP SAN, trusted but
+mismatching server SANs, and untrusted server chains. Rejection assertions require
+`UNAVAILABLE` with a certificate-validation cause from a bounded generated-client
+RPC on the Session's channel; connection refusal and generic timeouts do not pass.
+The peers require the separate trusted client certificate. Tests restore the
+opt-out environment immediately after constructing each Session and check that an
+opted-out Session does not affect a later verified Session.
+
+Only exact, case-sensitive `COHERENCE_IGNORE_INVALID_CERTS=true` skips hostname
+verification. Missing, empty, `false`, `0`, `1`, uppercase variants, surrounding
+whitespace, `yes`, and arbitrary values retain verification. The affirmative case
+warns and permits a trusted wrong hostname; an untrusted chain still fails even
+with that opt-out. This follows [Node's identity callback contract](https://nodejs.org/api/tls.html#tlscheckserveridentityhostname-cert):
+the callback runs after other certificate checks. The installed grpc-js 1.14.7
+`src/channel-credentials.ts` forwards this callback to `tls.connect` and retains
+its authorization check. No global TLS switch or channel hostname override is
+needed.
+
+Run the entire existing CRUD, listener, protobuf, session, and other top-level
+suites against real Coherence with verification enabled:
+
+```bash
+COHERENCE_VERSION=14.1.2-0-3 npm run test-cycle-tls
+COHERENCE_VERSION=14.1.2-0-3 npm run test-cycle
+```
+
+Use each supported Coherence version and Node line for full matrix qualification.
+Set `DOCKER_REGISTRY=container-registry.oracle.com/middleware` to use Oracle's
+registry instead of the default `ghcr.io/oracle`. The TLS cycle explicitly removes
+any inherited `COHERENCE_IGNORE_INVALID_CERTS`, and the plaintext cycle removes
+inherited TLS settings. Both target `localhost:1408`, create unique Compose
+projects, and leave the caller's environment, existing certificate directories,
+and `etc/jvm-args.txt` intact. They still require the Compose file's published host
+ports to be free; an occupied port fails startup and only the newly created
+project is stopped. Run cycles sequentially.
+
+Each cycle creates an owner-only temporary directory under
+`/private/tmp/codex-work` on macOS or `${TMPDIR:-/tmp}/codex-work` on Linux. It
+mounts only the JVM arguments file and the server identity/trust directory
+read-only (the CA signing key and client key are outside both mounts). Containers run as the host's numeric UID/GID, with an explicit unique
+cluster name, so private keys need no world-readable/writable permissions. EXIT,
+INT, and TERM traps tear down only this project and remove its temporary files,
+including after compilation, startup, or test failures. New test fixtures also
+live under this directory so a forced Mocha deadline cannot leave their keys
+behind. Startup has a bounded
+readiness wait and detects exited containers; the test process has a three-minute
+overall deadline supplied by Node (GNU `timeout` is not required). Failed cycles
+retain server diagnostics in `logs-<mode>-test-<version>-<node-version>.txt` in the
+repository root, without copying private keys. The focused script tests exercise
+success, compile failure, partial startup failure, and suite failure with mock
+commands, checking cleanup and configuration preservation. Cancellation checks
+send INT/TERM to the cycle PID during compilation, startup, and testing, including
+a TERM-resistant descendant. Commands run in separate process groups; cleanup
+sends TERM, allows two seconds to stop, then sends KILL and waits for the command
+before removing this cycle's resources.
+
+For manual TLS development, generate into a **new** directory; `keys.sh` refuses
+existing destinations rather than overwriting certificates:
+
+```bash
+bin/keys.sh etc/cert
+cp etc/jvm-args-tls.txt etc/jvm-args.txt
+export COHERENCE_TLS_CERTS_PATH="$PWD/etc/cert/ca.crt"
+export COHERENCE_TLS_CLIENT_CERT="$PWD/etc/cert/client.crt"
+export COHERENCE_TLS_CLIENT_KEY="$PWD/etc/cert/client.pem"
+export COHERENCE_SERVER_ADDRESS=localhost:1408
+unset COHERENCE_IGNORE_INVALID_CERTS
+# Match the image registry/version for both coh-up and coh-down.
+COHERENCE_VERSION=14.1.2-0-3 npm run coh-up
+npm test
+COHERENCE_VERSION=14.1.2-0-3 npm run coh-down
+```
+
+The manual commands intentionally change your local JVM configuration and leave
+certificates for reuse. Afterwards restore your prior JVM arguments/environment
+and remove only the certificates you generated when finished. `etc/cert` and
+`etc/jvm-args.txt` are ignored by Git and excluded from npm packages.
+
+Generated fixtures expire after 30 days and use SHA-256 signatures with RSA-2048
+keys. The self-signed CA has critical `CA:true,pathlen:0` and certificate-signing
+key usage. Both leaves have critical `CA:false`, digital-signature/key-encipherment
+usage, and distinct keys/subjects. `server/server.crt` has only `serverAuth` EKU and
+SANs **DNS:localhost, IP:127.0.0.1**; `client.crt` has only `clientAuth` EKU. Leaf
+private keys (`server/server.pem`, `client.pem`) are unencrypted PKCS#8 PEM for
+Netty/grpc-js compatibility. `keys.sh` creates directories with mode 700 and
+files with mode 600.
+`ca.key` stays outside the server mount with the client key; it is a local test
+signing key, never a committed fixture. The server mount contains only
+`server.pem`, `server.crt`, and `ca.crt`. These fixtures are for local testing.
+
+**Current IP-literal limitation:** grpc-js 1.14.7 sets the TLS `servername` to the
+channel target even when it is an IP. Node 26 rejects that SNI value with
+`ERR_INVALID_ARG_VALUE`; see [DEP0123](https://nodejs.org/api/deprecations.html#dep0123-setting-the-tls-servername-to-an-ip-address).
+Use a matching DNS target such as `localhost` on Node 26. The focused suite checks
+IP-target gRPC on Node 22/24 and validates the IP SAN directly through Node TLS on
+all lines, without sending an IP SNI value. This preserves verification and does
+not introduce a hidden hostname override. TLS discovery using IP-literal
+NameService targets on Node 26 shares this pre-existing transport limitation and
+is outside this step's qualification.
+
+#### Local TLS qualification on 14 November 2026
+
+Host: macOS arm64; Docker server: Linux aarch64. These runs used the official
+`container-registry.oracle.com/middleware/coherence-ce` images, two-member Compose
+clusters, `localhost:1408`, npm 11.20.0, and the existing locked dependency
+installation. They did not perform fresh installs or trigger hosted CI.
+
+| Node runtime | Coherence 22.06.12, verified TLS | Coherence 14.1.2-0-3, verified TLS | Coherence 25.03.2, verified TLS |
+| --- | --- | --- | --- |
+| 22.23.5 | 307 passing | 307 passing | 307 passing |
+| 24.13.0 | 307 passing | 307 passing | 307 passing |
+| 26.13.1 | 306 passing | 306 passing | 306 passing |
+
+Each run included the existing CRUD, listener/protobuf, HashMap, session, resolver
+unit, and tooling suites plus the new TLS and cleanup regressions. The count
+difference is the IP-target gRPC positive control on Node 22/24; Node 26 uses the
+verified DNS control and direct Node TLS IP control as described above. Every TLS
+cycle was launched with an inherited `COHERENCE_IGNORE_INVALID_CERTS=true` to
+exercise its removal. Node 22/24 cycles also received invalid inherited client/CA
+paths, which the isolated cycle replaced without changing the caller's values.
+
+The plaintext control on Node 26.13.1 with Coherence 14.1.2-0-3 also passed all
+306 tests, despite inherited invalid TLS paths and the hostname opt-out. Other
+plaintext matrix combinations were not repeated in this step. A final Node 26 /
+14.1.2-0-3 TLS rerun passed all 306 tests after narrowing the JVM-file mount and
+putting generated test fixtures under the cycle's outer cleanup trap.
+
+Standalone `npm run test-tls` passed 24 checks on Node 22/24 and 23 on Node 26,
+without forcing process exit. The Node 24 runs used macOS Bash 3.2.57 and LibreSSL
+3.3.6; the other matrix runs used OpenSSL 4.1.0. Shell syntax checks (including
+Bash 3.2), ShellCheck, TypeScript compilation, and `git diff --check` passed.
+
+After the cancellation follow-up added four regressions, the Node 26.13.1 focused
+suite passed 27 checks and the verified TLS cycle against Coherence 14.1.2-0-3
+passed 310 tests under macOS Bash 3.2.57. The nine cycle isolation/cleanup checks
+also passed on Node 24.13.0. The matrix above predates those four new checks.
+
+Native Linux/Windows client execution, other patch releases (including the
+published Node 22.9.0 runtime floor), the default legacy Coherence 22.06.11 image,
+and live foreign-cluster/TLS discovery were not qualified in this step. No CI
+trigger, security gate, release-publishing, or dependency policy changes are part
+of this implementation.
 
 ### Generating Documentation
 * After `npm ci` and `npm run compile`, run `npm exec -- typedoc` from the project root using the locked TypeDoc and TypeScript versions. The generated documentation
