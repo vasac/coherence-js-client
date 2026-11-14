@@ -27,6 +27,8 @@ See the [npm 11 engine declaration](https://github.com/npm/cli/blob/v11.20.0/pac
 * `clean` - removes all generated code, coverage, and documentation artifacts
 * `full-clean` - runs `clean` and removes the local `node_modules` directory 
 * `test-protobuf` - runs the server-free protobuf wire-format and recursion-limit regressions
+* `test-resolver-unit` - runs discovery regressions with loopback NameService and gRPC peers; no Coherence cluster is required
+* `test-resolver` - runs those regressions and discovery integration tests against local and foreign Coherence clusters
 * `test` - runs the unit and integration tests
 * `test-cycle` - starts the cluster and if successful, runs the unit tests.  After the cluster will be stopped.
 * `coverage` - runs the unit tests and gathers coverage metrics (results found in `coverage` directory)
@@ -119,6 +121,20 @@ For intentional dependency changes, use npm `11.20.0` and preserve lockfile form
 then run `npm ci` and the relevant build/tests. Existing dependency audit findings are
 tracked separately from this runtime/build baseline.
 
+The gRPC runtime is pinned to `@grpc/grpc-js` **1.14.7**, verified against npm's
+`latest` metadata on 14 November 2026. Discovery uses the exported `experimental`
+resolver interfaces, whose contract may change between minor releases, so review
+that contract when upgrading. The resolver reports endpoints and `UNAVAILABLE`
+errors through the callable `ResolverListener`, using the exported `StatusOr`
+helpers. A result rejected by the load balancer is retried with gRPC's backoff
+helper and the channel's initial/maximum reconnect backoff options. No private
+gRPC module imports are required.
+
+`@grpc/proto-loader` is needed transitively by gRPC, but is not used directly by
+this client. The lockfile contains one loader, `0.8.1`, using protobufjs `7.6.6`
+within its supported major range. This is separate from the generated Coherence
+messages, which continue to use `google-protobuf` `4.0.3`.
+
 ### Running the Unit Tests
 `npm run test-protobuf` runs the server-free wire and security regressions. Against
 a running test server, use `npm exec -- mocha test/protobuf-listener-tests.js --exit`
@@ -126,6 +142,23 @@ for the focused listener regression. It verifies insert/update/delete delivery t
 two matching filters and a key listener, observes multiple filter IDs in a single
 server response, and checks delivery after removing listeners. Both files also run
 in the regular unit/integration suite.
+
+`npm run test-resolver-unit` also runs without a Coherence server. It tests actual
+TCP framing, valid and malformed discovery responses, foreign lookup, refused and
+closed connections, the 10-second socket inactivity timeout, retries, repeated
+resolution, and cancellation. Real gRPC servers and `Session`/`NamedMap` calls
+exercise round-robin selection, failover, rediscovery at a new proxy port, lifecycle
+events, and shutdown. This command does not force process exit, so leaked sockets
+or referenced retry timers can keep it from completing.
+
+For the existing discovery integration tests, run two local Coherence clusters
+sharing the default NameService port `7574`, with loopback proxy addresses. The
+default expectations match the discovery CI workflow: proxies on `10000` and
+`10001`, with the foreign cluster named `grpc-cluster2`. Run `npm run test-resolver`.
+For isolated local cluster names or proxy ports, set
+`COHERENCE_DISCOVERY_PROXY_PORT`, `COHERENCE_DISCOVERY_FOREIGN_CLUSTER`, and
+`COHERENCE_DISCOVERY_FOREIGN_PORT` to match your test clusters. These variables
+configure test expectations only; they do not change the client defaults.
 
 * run `npm run coh-up` - this starts a Coherence test Docker container.  This instance exposes the `grpc` port `1408` and exposes port `5005` for java debugging of the Coherence instance.  To view the JSON payloads being sent to Coherence, check the docker container log for the instance this command started.
 * run `npm run test` - this will run all unit tests.  You may optionally run the tests individually via an IDE as long as the Coherence container mentioned in the previous step was started.

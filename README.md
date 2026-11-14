@@ -145,13 +145,18 @@ a custom channel option when creating the session:
 ```typescript
 const { Session } = require('@oracle/coherence')
 
-const opts = new Options({address: 'coherence:///localhost',
-  channelOptions: {'grpc.service_config': JSON.stringify({ loadBalancingConfig: [{ round_robin: {} }], })}})
-
-let session = new Session(opts)
+const session = new Session({
+  address: 'coherence:///localhost',
+  channelOptions: {
+    'grpc.service_config': JSON.stringify({ loadBalancingConfig: [{ round_robin: {} }] })
+  }
+})
 ```
 
 The Coherence NameService feature is available on all supported Node versions.
+Discovery honors an explicit NameService port, retries results rejected by gRPC
+with reconnect backoff, and closes pending lookup sockets and retry timers when
+the session closes. A stalled lookup fails after 10 seconds of socket inactivity.
 
 It's also possible to control the default address the session will bind to by providing
 an address via the `COHERENCE_SERVER_ADDRESS` environment variable.  The format of the value would
