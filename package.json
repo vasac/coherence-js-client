@@ -21,22 +21,21 @@
     "decimal.js": "^10.6"
   },
   "devDependencies": {
-    "grpc-tools": "^1.13",
+    "grpc-tools": "1.13.1",
     "@types/node": "22.20.5",
-    "glob-parent": "^6.0",
     "grpc_tools_node_protoc_ts": "5.3.3",
-    "mocha": "^11.7",
-    "nyc": "^15.1",
-    "source-map-support": "^0.5",
-    "ts-node": "^10.9",
+    "mocha": "12.0.3",
+    "nyc": "18.0.0",
     "typedoc": "0.28.20",
-    "typescript": "^5.8"
+    "typescript": "6.0.3"
   },
   "overrides": {
     "grpc_tools_node_protoc_ts": {
       "google-protobuf": "$google-protobuf",
       "handlebars": "4.7.10"
-    }
+    },
+    "glob@>=9 <14": "14.0.6",
+    "minimatch@>=7 <11": "11.0.8"
   },
   "scripts": {
     "grpc": "bin/npm-post-install.sh",
@@ -54,6 +53,7 @@
     "coverage": "nyc mocha 'test/**.js' --exit",
     "dist": "npm run compile && typedoc && npm pack",
     "prepack": "npm run grpc && npm run compile",
-    "prepare": "bin/npm-post-install.sh"
+    "prepare": "node bin/patch-typedoc.js && bin/npm-post-install.sh",
+    "test-tooling": "npm run compile && mocha test/tooling-tests.js"
   }
 }

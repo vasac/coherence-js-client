@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2020, 2023, Oracle and/or its affiliates.
+Copyright (c) 2020, 2026, Oracle and/or its affiliates.
 
 Licensed under the Universal Permissive License v 1.0 as shown at
 https://oss.oracle.com/licenses/upl.
@@ -8,7 +8,7 @@ https://oss.oracle.com/licenses/upl.
 # Developing Coherence JavaScript Client
 
 ### Requirements
-* Node `22.9.0` or later in the `22.x` line, `24.x`, or `26.x`; use the latest patch release of a supported line. Release builds use Node `26.x` LTS.
+* For development and tests, Node `22.12.0` or later in the `22.x` line, `24.x`, or `26.x`; use the latest patch release of a supported line. Mocha 12 needs `require(esm)` support. The published client's runtime floor remains `22.9.0`; development tools are not installed by consumers. Release builds use Node `26.x` LTS.
 * npm `11.20.0`, pinned in `package.json` and installed explicitly by CI.
 * Docker with Compose for the integration tests. Linux/macOS builds also need `curl`, `tar`, and network access for dependency installation and the verified JavaScript generator download.
 
@@ -27,6 +27,7 @@ See the [npm 11 engine declaration](https://github.com/npm/cli/blob/v11.20.0/pac
 * `clean` - removes all generated code, coverage, and documentation artifacts
 * `full-clean` - runs `clean` and removes the local `node_modules` directory 
 * `test-protobuf` - runs the server-free protobuf wire-format and recursion-limit regressions
+* `test-tooling` - checks Mocha discovery/exclusions, NYC file selection, and TypeDoc filtering without a Coherence server
 * `test-resolver-unit` - runs discovery regressions with loopback NameService and gRPC peers; no Coherence cluster is required
 * `test-resolver` - runs those regressions and discovery integration tests against local and foreign Coherence clusters
 * `test` - runs the unit and integration tests
@@ -57,7 +58,7 @@ graph, and fails if `package.json` and `package-lock.json` disagree. It does not
 the lockfile. Use it for fresh checkouts and when switching Node versions; an old local
 installation is not evidence of the committed baseline.
 
-Installation runs `prepare`, which verifies the vendored `etc/proto/messages.proto`
+Installation runs `prepare`, which applies the checked TypeDoc compatibility patch described below, verifies the vendored `etc/proto/messages.proto`
 and `services.proto`, generates `src/grpc` and `lib/grpc`, and resets `etc/jvm-args.txt`
 from `etc/jvm-args-clear.txt`. Preserve local JVM argument customizations before
 installing. `--ignore-scripts` skips required generation and is not a complete build.
@@ -111,15 +112,22 @@ The runtime is pinned to 4.0.3, which fixes
 Scanner output alone does not establish that this fix is present.
 
 The direct, pinned `@types/node` dependency stays on major 22 so builds on Node 24/26
-also check against the minimum supported runtime major. TypeScript remains at the
-locked version; TypeDoc is pinned and locked so generating release documentation
-does not require an additional dependency installation.
+also check against the minimum supported runtime major. TypeScript is pinned to
+**6.0.3**, the intermediate target supported by
+[TypeDoc 0.28.20's published peer range](https://github.com/TypeStrong/typedoc/blob/v0.28.20/package.json).
+TypeScript 7 is a separate migration. Compilation keeps strict checking, ES2015
+output, CommonJS modules, declarations and source maps. The redundant
+`downlevelIteration` option was removed because
+[TypeScript 6 deprecates it](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html#deprecated---downleveliteration).
+TypeDoc is pinned and locked so generating release documentation does not require
+an additional dependency installation.
 
 For intentional dependency changes, use npm `11.20.0` and preserve lockfile format 2:
 `npm install --package-lock-only --ignore-scripts --lockfile-version=2 <package-spec>`
 (add `--save-dev --save-exact` for pinned development tools). Review the lockfile diff,
-then run `npm ci` and the relevant build/tests. Existing dependency audit findings are
-tracked separately from this runtime/build baseline.
+then run `npm ci` and the relevant build/tests, including `test-tooling` when changing
+file matching or documentation tools. Review the override conditions and repeat the
+security and compatibility checks recorded below.
 
 The gRPC runtime is pinned to `@grpc/grpc-js` **1.14.7**, verified against npm's
 `latest` metadata on 14 November 2026. Discovery uses the exported `experimental`
@@ -182,6 +190,108 @@ COHERENCE_VERSION=25.03.2 npm run test-cycle
 ### Generating Documentation
 * After `npm ci` and `npm run compile`, run `npm exec -- typedoc` from the project root using the locked TypeDoc and TypeScript versions. The generated documentation
   will be available in the `docs` directory.
+
+### Development dependency maintenance
+
+The 14 November 2026 development-tree update selected these published releases:
+
+| Tool | Version | Selection |
+| --- | --- | --- |
+| Mocha | 12.0.3 | Current release; removes obsolete dependencies. Review the [Mocha 12 migration guide](https://mochajs.org/blog/mocha-12-stable/), including its development-only Node floor. |
+| NYC | 18.0.0 | Current release; [upstream updated its old glob/process dependencies](https://github.com/istanbuljs/nyc/releases/tag/nyc-v18.0.0). |
+| TypeScript / TypeDoc | 6.0.3 / 0.28.20 | Latest stable 6.x compiler and current documentation release, within the published peer range. |
+| grpc-tools / grpc_tools_node_protoc_ts | 1.13.1 / 5.3.3 | Current releases; preserve the qualified compiler, schemas and declarations. |
+| @types/node | 22.20.5 | Preserve the pinned minimum-runtime-major typings. |
+
+Release tags, dependency constraints and engines were checked using npm registry
+metadata through the approved registry mirror. Repository searches found no use of
+the direct `glob-parent`, `ts-node`, or `source-map-support` dependencies, so they
+were removed. None remains in the installed tree. Existing Mocha, NYC, TypeDoc,
+generation and packing commands remain in use.
+Generated `.tgz` files are excluded from packages so repeated `dist` runs cannot
+embed a previous distribution archive.
+
+Normal resolution refreshed Babel core to 7.29.13, Browserslist to 4.29.5,
+js-yaml to 3.15.2/5.5.0, diff to 9.0.0, serialize-javascript to 7.1.4,
+brace-expansion to 5.0.13 and tar to 7.5.23. NYC's process-info update removes
+the old uuid dependency. No overrides are needed for these families. The gRPC,
+protobuf and decimal runtime versions remain unchanged; the shared yargs and
+escalade runtime transitives received compatible patch/minor refreshes.
+
+Retain these exceptions until their upstream constraints are corrected:
+
+| Override | Upstream constraint and reason | Qualification and removal condition |
+| --- | --- | --- |
+| `grpc_tools_node_protoc_ts` → `google-protobuf: $google-protobuf` | The generator pins 3.15.8; use the same patched 4.0.3 runtime as production. | Wire/recursion regressions, deterministic generation and strict packed-consumer compilation. Remove when the generator adopts a secure compatible runtime. |
+| `grpc_tools_node_protoc_ts` → `handlebars: 4.7.10` | The generator pins 4.7.7. Preserve the previously qualified patched release. | Generated declarations remain byte-for-byte identical. Remove when the generator's own range resolves a patched compatible release. |
+| `glob@>=9 <14` → 14.0.6 | Mocha, NYC and test-exclude request 13.x; the [traversal-cancellation advisory](https://github.com/isaacs/node-glob/security/advisories/GHSA-3g3m-2fjr-6pw4) requires at least 14.0.2. | Mocha discovery, recursive/brace patterns, exclusions, NYC async/sync selection and actual coverage pass. Remove when all parents permit a patched release naturally. |
+| `minimatch@>=7 <11` → 11.0.8 | Mocha/test-exclude request `^10.2.2`; TypeDoc requests `^10.2.5`. The [pattern-amplification fix](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249) needs 11.x. | Mocha exclusions, NYC selection and TypeDoc filtering/rendering pass with the compatibility patch below. Remove when all parents permit a patched release and TypeDoc uses supported APIs. |
+
+The version selectors limit the two matching overrides to the obsolete major
+ranges; they do not replace newer compatible versions. Minimatch 11.0.8 also
+contains the [escape fix](https://github.com/isaacs/minimatch/security/advisories/GHSA-c859-jr93-m5j4)
+and [cache-bounding fix](https://github.com/isaacs/minimatch/security/advisories/GHSA-hqmv-qgp3-jx75)
+published on 11 November; 11.0.7 fixes the earlier
+[quadratic compile-time regression](https://github.com/isaacs/minimatch/security/advisories/GHSA-cf2h-pxjq-68xw).
+These primary advisories were checked separately from scanner output. The
+[protobuf recursion advisory](https://github.com/protocolbuffers/protobuf-javascript/security/advisories/GHSA-5h29-r2cp-hfmr)
+was also checked explicitly: only google-protobuf 4.0.3 remains, and its runtime
+guard is exercised by `test-protobuf`.
+
+**TypeDoc compatibility patch:** a successful install with minimatch 11 initially
+failed documentation generation because TypeDoc 0.28.20 calls the removed
+`Minimatch.matchOne()` API. `bin/patch-typedoc.js`, run by `prepare`, replaces that
+directory-traversal call with a cached matcher using the public partial-matching
+API. `flipNegate` preserves the original traversal's matching of pattern rows
+before negation. Full-path matching and exclusion options are preserved. The
+patch accepts only TypeDoc 0.28.20 and the SHA-256 of its exact published source
+(or the complete patched result), is idempotent, and fails on unexpected or partial
+changes. This is a local compatibility patch, not an upstream TypeDoc release.
+When TypeDoc supports patched minimatch directly, remove this script and its
+`prepare` invocation together with the now-unnecessary override; rerun
+`test-tooling`, rendering, `dist`, and the packed-consumer checks.
+
+#### Validation on 14 November 2026
+
+Host: macOS arm64; npm 11.20.0. The lockfile remains format 2 and uses public npm
+registry URLs. Clean installs used the approved Oracle registry mirror because
+direct registry access was blocked by the local corporate network policy.
+
+| Check | Observed result |
+| --- | --- |
+| Clean `npm ci` | Passed on Node 26.13.1 and 24.13.0; Node 24 also verified automatic application of the TypeDoc patch. Lockfile SHA-256 unchanged by install: `908ca398589e719792eeed4277e5100cdd84ff0816631633a9c22b3837728b63`. |
+| `compile` | Passed with TypeScript 6.0.3 and strict checking; all 15 generated/public `.d.ts` files unchanged from the previous baseline. |
+| `grpc`, repeated | All 10 generated protobuf artifacts identical across generation runs and to the prior baseline. |
+| `test-protobuf` / `test-resolver-unit` | 8 / 27 passing on Node 26; included in the full suites on both tested Node lines. Loopback servers require permission to bind local sockets. |
+| `test-tooling` | 3 passing: normal/recursive/brace Mocha discovery and ignore patterns; NYC generated/test/dependency exclusions and async/sync glob results; TypeDoc expanded entry points, generated-code exclusion and additional filters. |
+| `npm test` | Node 26: original 254 tests passed; Node 24 after adding tooling regressions: 257 passed. Both used one isolated Coherence 14.1.2-0-3 server. |
+| `coverage` | 257 passing on Node 26 against the same server; HTML generated. JSON verification found exactly the 9 original TypeScript source files, valid source line locations and executed statements, with no generated code, tests or dependencies. Statements 88.26%, branches 72.18%, functions 86.56%, lines 88.52%. |
+| TypeDoc / `dist` | HTML rendering and package creation passed; 118 HTML pages and 186 package files, with required CommonJS/protobuf/declarations and no nested tarballs or development files. TypeDoc reported 0 errors and 19 warnings about comment tags and cross-references. |
+| Packed consumers | Clean JavaScript production install passed; independent review confirmed TypeScript 6.0.3 strict compilation with `@types/node@22.20.5` (see settings and limit below). Both implementation consumers ran protobuf round trips and live map CRUD; TypeScript also checked listener and generated service declarations. No development tools or obsolete protobuf runtime entered the production consumer. |
+| Patch integrity | Exact original patched once; reapplication made no write; unexpected source rejected without a write. |
+| `npm ls --all` / `git diff --check` | Passed. |
+| `npm audit --json` / `npm audit --omit=dev --json` | Both 0 findings at 10:27:57 / 10:27:58 UTC through the approved registry mirror. The service supplies no database timestamp. Complete baseline had 15 findings (2 low, 6 moderate, 7 high); natural updates alone left 8, resolved by the qualified overrides. |
+| Trivy 0.76.2, `fs --scanners vuln --include-dev-deps` | 0 findings at 10:27:59 UTC. Database schema 2, updated 2026-11-14 07:01:20 UTC, downloaded 10:14:28 UTC; baseline had 47 package/advisory occurrences. No advisory ignore list or severity filtering was used. |
+
+The independent packed-consumer review used `target: ES2022`, `module: Node16`,
+`moduleResolution: Node16`, `strict: true`, `skipLibCheck: false`, and
+`esModuleInterop: true`. Compilation passed with `@types/node@22.20.5` under both
+TypeScript 6.0.3 and 5.8.3. A fresh production install of the
+`@oracle/coherence@1.2.4` tarball selected `@types/node@26.6.6` through protobufjs's
+broad dependency. With those typings, both compilers failed with four TS2416 errors
+in `lib/util.d.ts`: `HashMap.entries()`, `values()`, `keys()`, and
+`[Symbol.iterator]()` return `IterableIterator`, which lacks the `[Symbol.dispose]`
+member required by `MapIterator`. This is a pre-existing declaration compatibility
+limit, not a step 4 regression. The Node typings are compiler input, separate from
+the Node runtime version. The version 22 pin defines the passing review
+configuration; it does not fix the iterator incompatibility. That fix is separate
+work.
+
+This is bounded development-tool qualification. Node 22, Coherence 22.06.12 and
+25.03.2, two-member/foreign-cluster discovery, TLS combinations, Linux and other
+architectures were not exercised in this step. The existing Node 22/24/26 and
+three-server CI matrices remain unchanged. Scanner results describe the databases
+at the recorded times and are supplemented by the primary advisory checks above.
 
 ### Code Style
 * Currently based on https://google.github.io/styleguide/jsguide#formatting
