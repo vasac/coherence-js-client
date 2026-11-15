@@ -24,14 +24,21 @@ jobs:
     name: Macaron policy verification
     runs-on: ubuntu-latest
     steps:
+      # Checkout the event commit into the pinned Macaron version's repository
+      # cache. This also makes PR merge commits available to its remote analysis.
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          path: output/git_repos/github_com/${{ github.repository }}
           persist-credentials: false
 
       - name: Run Macaron check-github-actions policy
         uses: oracle/macaron@b31acfe389133a5587d9639063ec70cb84e7bc47
         with:
+          # Keep the URL for provenance validation and reuse the checkout above.
+          # The cache path must remain under this output_dir.
+          output_dir: output
           repo_path: https://github.com/${{ github.repository }}
+          digest: ${{ github.sha }}
           policy_file: check-github-actions
           policy_purl: pkg:github.com/${{ github.repository }}@${{ github.sha }}
