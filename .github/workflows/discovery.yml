@@ -17,6 +17,8 @@ on:
   pull_request:
     types:
       - opened
+      - synchronize
+      - reopened
     branches:
     - '*'
 
@@ -31,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x, 24.x]
+        node-version: [22.x, 24.x, 26.x]
         coherence-version: [22.06.12, 14.1.2-0-3, 25.03.2]
 
     steps:
@@ -40,17 +42,17 @@ jobs:
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
       with:
         node-version: ${{ matrix.node-version }}
-    - run: curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v22.2/protoc-22.2-linux-x86_64.zip"
-    - run: unzip protoc-22.2-linux-x86_64.zip -d /tmp/grpc
-    - run: echo "/tmp/grpc/bin" >> $GITHUB_PATH
-    - run: npm install
+    - name: Use npm 11.20.0
+      run: npm install --global npm@11.20.0
+    - run: npm ci
     - run: npm run compile
 
     - name: Run Coherence Server
       shell: bash
       env:
-        COHCTL_INSTALL_URL: https://raw.githubusercontent.com/oracle/coherence-cli/main/scripts/install.sh
-        COHCTL_INSTALL_SHA256: 45ac74a3d9e5fbe8e7f4d412e8a04a56d3cf6e0670f127d9ad0d8a71ce09e27c
+        # Update the reviewed upstream revision and its SHA-256 together.
+        COHCTL_INSTALL_URL: https://raw.githubusercontent.com/oracle/coherence-cli/d4caefa879f186d6969d9b669a9942bf6229e61e/scripts/install.sh
+        COHCTL_INSTALL_SHA256: f1d57a9c1560cc4a4737e01ed483aa8cfe6f86024d15794e659a6796d91d0410
       run: |
         export COHERENCE_VERSION=${{ matrix.coherence-version }}
         install_script="$(mktemp)"

@@ -12,8 +12,8 @@ the network transport.
 
 ### Requirements
 * Coherence CE versions `22.06`, `14.1.2-0-0`, `25.03` or later (or equivalent non-open source editions) with a configured [gRPC Proxy](https://docs.oracle.com/en/middleware/standalone/coherence/14.1.1.2206/develop-remote-clients/using-coherence-grpc-server.html)
-* Node `20.19.x` or later
-* NPM `9.x` or later
+* Node `22.9.0` or later in the `22.x` line, `24.x`, or `26.x`; use the latest patch release of a supported line. Node 20 is end-of-life and is no longer supported.
+* For source builds, use npm `11.20.0`. Release builds use Node `26.x` LTS. See [DEVELOPING.md](./DEVELOPING.md) for the reproducible installation procedure and CI matrix.
 
 ### Usage
 
@@ -28,7 +28,7 @@ or to save some keystrokes/time, use the included npm script, `coh-up` to start 
 npm run coh-up
 ```
 
-**Important!** When calling `coh-up` or `coh-down`, the LTS version of Coherence will be used (`22.06.12`).
+**Important!** The local `coh-up` and `coh-down` scripts default to Coherence `22.06.11`; CI tests `22.06.12`, `14.1.2-0-3`, and `25.03.2` explicitly.
 To use a later Coherence version, such as `25.03.2`, prefix the calls with, or export `COHERENCE_VERSION=<desired-version>`.
 For example:
 ```bash
@@ -89,8 +89,22 @@ The currently supported properties are:
     - `clientCertPath` - the path to the client certificate. This may be configured with the environment variable `COHERENCE_TLS_CLIENT_CERT`
     - `clientKeyPath` - the path to the client certificate key. This may be configured with the environment variable `COHERENCE_TLS_CLIENT_KEY`
 
-*NOTE*: If testing locally generated certificates, set `COHERENCE_IGNORE_INVALID_CERTS` to `true` to disable
-TLS validation of the certificates.
+TLS verifies the server's certificate chain and hostname by default. Trust the
+issuing CA and connect using a name in the server certificate's subject alternative
+names (SANs). Locally generated certificates work with verification enabled too:
+`npm run test-cycle-tls` creates a local CA, a server certificate for `localhost`
+and `127.0.0.1`, and a separate client identity, then runs the integration tests.
+See [DEVELOPING.md](DEVELOPING.md#tls-certificates-and-verification) for manual setup.
+Use `localhost` with the current grpc-js version on Node 26; IP-literal gRPC TLS
+targets encounter the SNI limitation documented there.
+
+For an intentional compatibility opt-out, only the exact, case-sensitive value
+`COHERENCE_IGNORE_INVALID_CERTS=true` skips **server hostname verification** and
+emits a warning. Certificate-chain validation remains enabled, so an untrusted CA
+still fails. Unset, empty, `false`, `0`, uppercase variants, whitespace, and all
+other values keep hostname verification enabled. Skipping hostname verification
+is insecure; use matching SANs instead. Earlier versions treated every nonempty
+value, including `false`, as enabling the opt-out.
 
 ```typescript
 const { Session } = require('@oracle/coherence')
@@ -145,13 +159,18 @@ a custom channel option when creating the session:
 ```typescript
 const { Session } = require('@oracle/coherence')
 
-const opts = new Options({address: 'coherence:///localhost',
-  channelOptions: {'grpc.service_config': JSON.stringify({ loadBalancingConfig: [{ round_robin: {} }], })}})
-
-let session = new Session(opts)
+const session = new Session({
+  address: 'coherence:///localhost',
+  channelOptions: {
+    'grpc.service_config': JSON.stringify({ loadBalancingConfig: [{ round_robin: {} }] })
+  }
+})
 ```
 
-*NOTE* The Coherence NameService feature requires Node `20.x` or later.
+The Coherence NameService feature is available on all supported Node versions.
+Discovery honors an explicit NameService port, retries results rejected by gRPC
+with reconnect backoff, and closes pending lookup sockets and retry timers when
+the session closes. A stalled lookup fails after 10 seconds of socket inactivity.
 
 It's also possible to control the default address the session will bind to by providing
 an address via the `COHERENCE_SERVER_ADDRESS` environment variable.  The format of the value would

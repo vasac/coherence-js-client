@@ -28,24 +28,26 @@ jobs:
         with:
           ref: ${{ github.event.release.target_commitish }}
       # install Node.js
-      - name: Use Node.js 20.x
+      - name: Use Node.js 26.x (LTS)
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 20.19.x
+          node-version: 26.x
           # Specifies the registry, this field is required!
           registry-url: https://registry.npmjs.org/
-      # install protoc
-      - run: curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v22.2/protoc-22.2-linux-x86_64.zip"
-      - run: unzip protoc-22.2-linux-x86_64.zip -d /tmp/grpc
-      - run: echo "/tmp/grpc/bin" >> $GITHUB_PATH
-      - run: npm install
+      - name: Use npm 11.20.0
+        run: npm install --global npm@11.20.0
+      - run: npm ci
       # run unit tests
       - run: COHERENCE_VERSION=22.06.12 npm run test-cycle
       - run: COHERENCE_VERSION=25.03.2 npm run test-cycle
       - run: COHERENCE_VERSION=14.1.2-0-3 npm run test-cycle
-      - run: npm install --no-save typedoc
       # generate dist which runs other tasks
       - run: npm run dist
+      # Scan this job's checkout and lockfile immediately before publishing.
+      - name: Gate dependency security
+        uses: ./.github/actions/dependency-security
+        with:
+          artifact-name: release-dependency-security
       # publish to NPM
       - run: npm publish
         env:

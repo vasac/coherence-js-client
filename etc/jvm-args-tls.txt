@@ -8,6 +8,6 @@
 -Dcoherence.log.level=9
 -Dcoherence.io.json.debug=false
 -Dcoherence.grpc.server.socketprovider=tls-files
--Dcoherence.security.key=/certs/star-lord.pem
--Dcoherence.security.cert=/certs/star-lord.crt
--Dcoherence.security.ca.cert=/certs/guardians-ca.crt
+-Dcoherence.security.key=/certs/server.pem
+-Dcoherence.security.cert=/certs/server.crt
+-Dcoherence.security.ca.cert=/certs/ca.crt

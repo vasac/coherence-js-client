@@ -1,18 +1,17 @@
 /*
- * Copyright (c) 2020, 2023, Oracle and/or its affiliates.
+ * Copyright (c) 2020, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
  */
 
-import {ClientDuplexStream} from '@grpc/grpc-js'
+import {ClientDuplexStream, connectivityState as ConnectivityState} from '@grpc/grpc-js'
 import {EventEmitter} from 'events'
 import {filter} from './filters'
 import {MapEventResponse, MapListenerRequest, MapListenerResponse} from './grpc/messages_pb'
 import {NamedCacheServiceClient} from './grpc/services_grpc_pb'
 import {NamedCache, NamedMap} from './named-cache-client'
 import {util} from './util'
-import {ConnectivityState} from "@grpc/grpc-js/build/src/connectivity-state";
 import {Session} from "./session";
 
 export namespace event {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2022, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -162,11 +162,11 @@ export namespace util {
     /**
      * @inheritDoc
      */
-    entries (): IterableIterator<[K, V]> {
+    entries (): MapIterator<[K, V]> {
       return new EntryIterator(this.buckets)
     }
 
-    values (): IterableIterator<V> {
+    values (): MapIterator<V> {
       return new ValueIterator(this.buckets)
     }
 
@@ -175,7 +175,7 @@ export namespace util {
     /**
      * @inheritDoc
      */
-    keys (): IterableIterator<K> {
+    keys (): MapIterator<K> {
       return new KeyIterator(this.buckets)
     }
 
@@ -215,7 +215,7 @@ export namespace util {
     /**
      * @inheritDoc
      */
-    [Symbol.iterator] (): IterableIterator<[K, V]> {
+    [Symbol.iterator] (): MapIterator<[K, V]> {
       return new EntryIterator(this.buckets)
     }
 
@@ -315,9 +315,28 @@ export namespace util {
   }
 
   /**
-   * {@link IterableIterator} implementation for {@link HashMap} entries.
+   * Native iterator helpers with disposal support on every supported Node version.
    */
-  class EntryIterator<K, V> implements IterableIterator<[K, V]> {
+  abstract class HashMapIterator<T> extends Iterator<T, undefined> implements MapIterator<T> {
+
+    [Symbol.iterator] (): MapIterator<T> {
+      return this
+    }
+
+    /**
+     * Follow Iterator.prototype[Symbol.dispose]: call return() if present.
+     * These in-memory iterators have no return() or external resources, so disposal
+     * normally does nothing and iteration can continue, just like a native Map.
+     */
+    [Symbol.dispose] (): void {
+      this.return?.()
+    }
+  }
+
+  /**
+   * {@link MapIterator} implementation for {@link HashMap} entries.
+   */
+  class EntryIterator<K, V> extends HashMapIterator<[K, V]> {
 
     /**
      * The buckets from the map this iterator will be processing.
@@ -340,47 +359,32 @@ export namespace util {
      * @param buckets  the buckets to iterator over
      */
     constructor (buckets: [K, V][][]) {
+      super()
       this.buckets = buckets
     }
 
     /**
      * @inheritDoc
      */
-    next (...args: [] | [undefined]): IteratorResult<[K, V]> {
+    next (...args: [] | [unknown]): IteratorResult<[K, V], undefined> {
       const bc = this.buckets.length
       while (this.bucketsIdx < bc) {
         const bucket = this.buckets[this.bucketsIdx]
         if (this.bucketContentsIdx < bucket.length) {
-          return this.result(bucket[this.bucketContentsIdx++])
+          return {done: false, value: bucket[this.bucketContentsIdx++]}
         } else {
           this.bucketContentsIdx = 0
           this.bucketsIdx++
         }
       }
-      return {done: true, value: null}
-    }
-
-    /**
-     * @inheritDoc
-     */
-    [Symbol.iterator] (): IterableIterator<[K, V]> {
-      return this
-    }
-
-    /**
-     * Return the iteration result appropriate to this iterator type.
-     *
-     * @param entry  the map entry
-     */
-    protected result (entry: [K, V]): IteratorResult<any> {
-      return {done: false, value: entry}
+      return {done: true, value: undefined}
     }
   }
 
   /**
-   * {@link IterableIterator} implementation for {@link HashMap} keys.
+   * {@link MapIterator} implementation for {@link HashMap} keys.
    */
-  class KeyIterator<K> implements IterableIterator<K> {
+  class KeyIterator<K> extends HashMapIterator<K> {
 
     /**
      * The wrapped {@link EntryIterator}.
@@ -393,32 +397,23 @@ export namespace util {
      * @param buckets  the buckets to iterator over
      */
     constructor (buckets: [K, any][][]) {
+      super()
       this.entryIterator = new EntryIterator<K, any>(buckets)
     }
 
     /**
      * @inheritDoc
      */
-    next (...args: [] | [undefined]): IteratorResult<K> {
+    next (...args: [] | [unknown]): IteratorResult<K, undefined> {
       const result = this.entryIterator.next()
-      if (result.value) {
-        result.value = result.value[0]
-      }
-      return result as IteratorResult<K>
-    }
-
-    /**
-     * @inheritDoc
-     */
-    [Symbol.iterator] (): IterableIterator<K> {
-      return this
+      return result.done ? result : {done: false, value: result.value[0]}
     }
   }
 
   /**
-   * {@link IterableIterator} implementation for {@link HashMap} values.
+   * {@link MapIterator} implementation for {@link HashMap} values.
    */
-  class ValueIterator<V> implements IterableIterator<V> {
+  class ValueIterator<V> extends HashMapIterator<V> {
 
     /**
      * The wrapped {@link EntryIterator}.
@@ -431,25 +426,16 @@ export namespace util {
      * @param buckets  the buckets to iterator over
      */
     constructor (buckets: [any, V][][]) {
+      super()
       this.entryIterator = new EntryIterator<any, V>(buckets)
     }
 
     /**
      * @inheritDoc
      */
-    next (...args: [] | [undefined]): IteratorResult<V> {
+    next (...args: [] | [unknown]): IteratorResult<V, undefined> {
       const result = this.entryIterator.next()
-      if (result.value) {
-        result.value = result.value[1]
-      }
-      return result as IteratorResult<V>
-    }
-
-    /**
-     * @inheritDoc
-     */
-    [Symbol.iterator] (): IterableIterator<V> {
-      return this
+      return result.done ? result : {done: false, value: result.value[1]}
     }
   }
 

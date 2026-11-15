@@ -16,11 +16,10 @@ describe('Session Tests Suite (unit/IT)', () => {
         const session = new Session()
 
         if (process.env.COHERENCE_TLS_CERTS_PATH) {
-          let currentDir = process.cwd()
           assert.equal(session.options.tls.enabled, true)
-          assert.equal(session.options.tls.caCertPath, currentDir + '/etc/cert/guardians-ca.crt')
-          assert.equal(session.options.tls.clientCertPath, currentDir + '/etc/cert/star-lord.crt')
-          assert.equal(session.options.tls.clientKeyPath, currentDir + '/etc/cert/star-lord.pem')
+          assert.equal(session.options.tls.caCertPath, process.env.COHERENCE_TLS_CERTS_PATH)
+          assert.equal(session.options.tls.clientCertPath, process.env.COHERENCE_TLS_CLIENT_CERT)
+          assert.equal(session.options.tls.clientKeyPath, process.env.COHERENCE_TLS_CLIENT_KEY)
         } else {
           assert.equal(session.options.tls.enabled, false)
           assert.equal(session.options.tls.caCertPath, undefined)
