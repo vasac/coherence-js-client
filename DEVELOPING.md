@@ -348,6 +348,81 @@ and live foreign-cluster/TLS discovery were not qualified in this step. No CI
 trigger, security gate, release-publishing, or dependency policy changes are part
 of this implementation.
 
+### Dependency security gates
+
+The **Dependency Security** workflow (`trivy-scan.yml`) runs when a PR is opened,
+updated, or reopened, on pushes except `ghpages`, by manual request, and daily at
+00:00 UTC. Scheduled scans check for advisories published after the code changed.
+The publishing job also invokes the same local action immediately before
+`npm publish`, against that job's existing checkout and lockfile. A failed gate
+prevents the subsequent publish step through GitHub Actions' default success
+condition. The release checkout selection and existing functional/TLS test
+matrices are separate concerns; this gate does not change them.
+
+The gate uses npm **11.20.0** and Trivy **0.76.2**, with actions pinned by commit.
+`bin/dependency-security.js` runs all three scans, retaining reports even when an
+earlier scan fails:
+
+* `npm audit --package-lock-only --json --audit-level=info --include=prod --include=optional --include=peer --omit=dev` checks production dependencies.
+* The same npm audit with `--include=dev` instead of `--omit=dev` checks the complete dependency tree, including build tools even with `NODE_ENV=production`.
+* `trivy fs --scanners=vuln,secret --include-dev-deps --exit-code=1 --severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignore-unfixed=false --format=json --list-all-pkgs --no-progress .` scans the filesystem, including development dependencies, and preserves the previous workflow's default secret scanning.
+
+The policy is **zero unresolved known dependency findings at any severity**.
+Findings, scanner/service errors, invalid reports, missing root lockfile coverage,
+and changes to the manifests during scanning fail the gate. There are no new
+advisory ignores, automatic fixes, or severity exclusions. The scans read the
+lockfile without installing or updating dependencies. Existing `npm ci` builds
+remain responsible for checking manifest/lockfile consistency and build behavior.
+See [npm audit](https://docs.npmjs.com/cli/v11/commands/npm-audit/),
+[Trivy's npm coverage](https://trivy.dev/docs/latest/coverage/language/nodejs/#npm),
+and [GitHub Actions step conditions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsif).
+
+Artifacts `dependency-security` and `release-dependency-security` retain the JSON
+scan reports, scanner stderr, npm registry/version, Node version, per-command UTC
+start/end times and exit status, and SHA-256 hashes of both manifests. The Trivy
+version report is captured after scanning to record the database schema and
+update/download timestamps when available. npm's advisory service does not expose
+a database timestamp. Reports live outside the checkout, so they do not enter the
+package or the scan input.
+
+To run locally, install the pinned tools, select a supported Node version, and run
+from the repository root (no Coherence server is required):
+
+```bash
+node --test test/security-gate-tests.cjs
+node bin/dependency-security.js /private/tmp/codex-work/coherence-security-reports
+```
+
+The focused regressions use stub scanners and a stub publication command; they
+exercise success and failure propagation without contacting a publication
+endpoint. Local checks do not establish hosted workflow results. Configuring a
+workflow does not make it a required merge check; repository rules/branch
+protection must be configured separately. Advisory scans detect known findings
+and cannot prove that every possible vulnerability is absent.
+
+#### Local gate verification on 15 November 2026
+
+On macOS arm64 with Node **26.13.1**, npm **11.20.0**, and Trivy **0.76.2**,
+the real gate passed using the public npm advisory service and a fresh Trivy DB
+download. All scans returned zero findings; no ignores, fixes, or dependency
+changes were made.
+
+| Scan | UTC interval | Result |
+| --- | --- | --- |
+| npm production | 05:34:01–05:34:03 | 0 findings |
+| npm full tree, explicitly including development dependencies | 05:34:03–05:34:04 | 0 findings |
+| Trivy filesystem, including development dependencies | 05:34:04–05:34:05 | 0 vulnerabilities and 0 secrets; 220 packages, including Mocha 12.0.3 and TypeScript 6.0.3 |
+
+Trivy DB schema **2** was updated at **2026-11-15 01:07:39 UTC** and downloaded at
+**05:32:23 UTC**. The lockfile hash remained
+`908ca398589e719792eeed4277e5100cdd84ff0816631633a9c22b3837728b63`.
+All **17** stub-based gate regressions passed, including publication blocking on
+each scanner's findings/service errors, malformed reports, secrets, missing
+lockfile coverage, and changed input. JavaScript syntax checks, actionlint **1.7.12**,
+composite-action YAML parsing, release-step ordering/preservation checks, and
+`git diff --check` passed. These were local checks; no hosted workflow or
+publication was triggered.
+
 ### Generating Documentation
 * After `npm ci` and `npm run compile`, run `npm exec -- typedoc` from the project root using the locked TypeDoc and TypeScript versions. The generated documentation
   will be available in the `docs` directory.

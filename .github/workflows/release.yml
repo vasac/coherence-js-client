@@ -43,6 +43,11 @@ jobs:
       - run: COHERENCE_VERSION=14.1.2-0-3 npm run test-cycle
       # generate dist which runs other tasks
       - run: npm run dist
+      # Scan this job's checkout and lockfile immediately before publishing.
+      - name: Gate dependency security
+        uses: ./.github/actions/dependency-security
+        with:
+          artifact-name: release-dependency-security
       # publish to NPM
       - run: npm publish
         env:
